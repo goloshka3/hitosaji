@@ -7,4 +7,5 @@ export const put=(store,value)=>transact([store],tx=>tx.objectStore(store).put(v
 export const remove=(store,id)=>transact([store],tx=>tx.objectStore(store).delete(id));
 export async function readState(){const rows=await Promise.all(STORES.map(all));return Object.fromEntries(STORES.map((s,i)=>[s,rows[i]]));}
 export function saveIntake(product,version,log,captureId){return transact(['products','productVersions','intakeLogs','pendingCaptures'],tx=>{if(product)tx.objectStore('products').put(product);if(version)tx.objectStore('productVersions').put(version);tx.objectStore('intakeLogs').add(log);if(captureId)tx.objectStore('pendingCaptures').delete(captureId);});}
-export function replaceData(data){return transact(STORES,tx=>{for(const s of STORES){const os=tx.objectStore(s);os.clear();const values=s==='pendingCaptures'?[]:s==='settings'?[{...data.settings,id:'preferences'},{id:'goals',value:data.nutrientGoals}]:data[s];for(const value of values)os.add(value);}});}
+export function replaceData(data){return transact(STORES,tx=>{for(const s of STORES){const os=tx.objectStore(s);os.clear();const values=s==='pendingCaptures'?[]:s==='settings'?[{...data.settings,id:'preferences'},{id:'goals',value:data.nutrientGoals},{id:'backupStatus',lastExportAt:data.exportedAt}]:data[s];for(const value of values)os.add(value);}});}
+

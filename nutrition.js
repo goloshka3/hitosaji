@@ -15,17 +15,21 @@ export function multiplier(analysis,amount){if(!amount||!(amount.value>0)||!Numb
  if(b.unit==='package'&&net?.unit===amount.unit&&net.value>0)return amount.value/net.value/b.value;
  throw new Error('この単位への換算に必要な内容量がありません。表示基準と同じ単位を使うか、内容量を修正してください。');}
 export function snapshot(analysis,amount,foods=[]){const factor=multiplier(analysis,amount),result={};for(const d of DEFINITIONS)result[d.id]={value:null,unit:d.unit,source:null,confidence:null};
+ for(const n of analysis.estimatedNutrients||[]){if(n.value===null||!BY_ID[n.id])continue;const d=BY_ID[n.id];result[n.id]={value:normalizeUnit(n.value,n.unit,d.unit)*factor,unit:d.unit,source:'estimated',confidence:analysis.confidence};}
  // Components are weights for ONE nutritionBasis, never for the consumed amount.
  const components=analysis.estimatedComponents||[];
  for(const d of DEFINITIONS){if(!components.length)continue;let sum=0,complete=true,confidence=1;for(const c of components){const food=foods.find(f=>f.id===c.foodId);const v=food?.nutrients[d.id];if(c.grams===null||v===null||v===undefined){complete=false;break;}sum+=v*c.grams/100;confidence=Math.min(confidence,c.confidence);}if(complete)result[d.id]={value:sum*factor,unit:d.unit,source:'estimated',confidence,foodIds:components.map(c=>c.foodId)};}
+ for(const n of analysis.publishedNutrients||[]){if(n.value===null||!BY_ID[n.id])continue;const d=BY_ID[n.id],source=analysis.sources?.find(s=>s.id===n.sourceId);if(!source)throw new Error('公式値の出典がありません。');result[n.id]={value:normalizeUnit(n.value,n.unit,d.unit)*factor,unit:d.unit,source:factor===1?'published':'calculated',origin:'published',confidence:analysis.confidence,sourceUrl:source.url,sourceTitle:source.title};}
  for(const n of analysis.declaredNutrients||[]){if(n.value===null)continue;const d=BY_ID[n.id];if(!d)continue;result[n.id]={value:normalizeUnit(n.value,n.unit,d.unit)*factor,unit:d.unit,source:factor===1?'declared':'calculated',confidence:analysis.confidence};}
  // Salt declarations always win over sodium conversions; never add both.
- const saltDeclared=analysis.declaredNutrients?.some(n=>n.id==='salt'&&n.value!==null);
- const sodiumDeclared=analysis.declaredNutrients?.some(n=>n.id==='sodium'&&n.value!==null);
- if(!saltDeclared&&sodiumDeclared){result.salt={value:result.sodium.value*2.54/1000,unit:'g',source:'calculated',confidence:analysis.confidence};}
+ const saltDeclared=['declared','calculated','published'].includes(result.salt.source);
+ const sodiumDeclared=['declared','calculated','published'].includes(result.sodium.source);
+ if(!saltDeclared&&sodiumDeclared){result.salt={...result.sodium,value:result.sodium.value*2.54/1000,unit:'g',source:'calculated'};}
  return result;
 }
 export function aggregate(logs){return Object.fromEntries(DEFINITIONS.map(d=>{const values=logs.map(l=>l.nutrientSnapshot[d.id]?.value??null);const known=values.filter(v=>v!==null);return [d.id,{value:logs.length===0?0:known.length?known.reduce((a,b)=>a+b,0):null,partial:known.length<logs.length,known:known.length,total:logs.length,estimated:logs.some(l=>l.nutrientSnapshot[d.id]?.source==='estimated')}];}));}
-export function versionFingerprint(a){return JSON.stringify({name:a.productName.trim(),manufacturer:a.manufacturer.trim(),net:a.netAmount,basis:a.nutritionBasis,nutrients:[...a.declaredNutrients].sort((a,b)=>a.id.localeCompare(b.id)),components:a.estimatedComponents});}
-export function majorChange(a,b){if(JSON.stringify(a.netAmount)!==JSON.stringify(b.netAmount)||JSON.stringify(a.nutritionBasis)!==JSON.stringify(b.nutritionBasis))return true;return ['energy','protein','fat','carbohydrate'].some(id=>{const x=a.declaredNutrients.find(n=>n.id===id)?.value??null,y=b.declaredNutrients.find(n=>n.id===id)?.value??null;return x===null||y===null?x!==y:Math.abs(x-y)>Math.max(.1,Math.abs(x)*.05);});}
+export function versionFingerprint(a){return JSON.stringify({name:a.productName.trim(),manufacturer:a.manufacturer.trim(),net:a.netAmount,basis:a.nutritionBasis,nutrients:[...a.declaredNutrients].sort((a,b)=>a.id.localeCompare(b.id)),components:a.estimatedComponents,estimated:a.estimatedNutrients||[],published:a.publishedNutrients||[],sources:a.sources||[],estimationNotes:a.estimationNotes||''});}
+export function majorChange(a,b){if(JSON.stringify(a.netAmount)!==JSON.stringify(b.netAmount)||JSON.stringify(a.nutritionBasis)!==JSON.stringify(b.nutritionBasis))return true;return ['energy','protein','fat','carbohydrate'].some(id=>{const get=v=>v.declaredNutrients.find(n=>n.id===id)?.value??v.publishedNutrients?.find(n=>n.id===id)?.value??v.estimatedNutrients?.find(n=>n.id===id)?.value??null;const x=get(a),y=get(b);return x===null||y===null?x!==y:Math.abs(x-y)>Math.max(.1,Math.abs(x)*.05);});}
 export function isDuplicate(logs,productId,time=new Date()){return logs.some(l=>l.productId===productId&&Math.abs(new Date(l.consumedAt)-new Date(time))<120000);}
+
+
