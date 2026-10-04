@@ -1,7 +1,8 @@
-const CACHE='hitosaji-static-v1.1-20261001';
+const CACHE='hitosaji-static-v1.1-20261004-history';
 const FILES=['./','./index.html','./styles.css','./app.js','./main.js','./ui.js','./nutrition.js','./db.js','./claude.js','./backup.js','./storage.js','./recommendations.js','./manifest.webmanifest','./icon.svg','./icons/icon-192.png','./icons/icon-512.png','./data/food-composition.json'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(FILES))));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('hitosaji-static-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
 self.addEventListener('fetch',event=>{const url=new URL(event.request.url);if(event.request.method!=='GET'||url.origin!==self.location.origin)return;url.hash='';const allowed=FILES.map(path=>new URL(path,self.registration.scope).href);if(!allowed.includes(url.href))return;event.respondWith(caches.open(CACHE).then(async cache=>{const cached=await cache.match(url.href);if(cached)return cached;return fetch(event.request);}));});
+
 
 
