@@ -1,3 +1,4 @@
+import {manualAnalysis} from './manual.js';
 import {storageStatus,backupDue} from './storage.js';
 import {DEFINITIONS,DEFAULT_GOALS,DEFAULT_SETTINGS,dayKey,daysBack,fmt,normalizeUnit,goalFor,statusOf,snapshot,aggregate,versionFingerprint,majorChange,isDuplicate} from './nutrition.js';
 import * as db from './db.js';
@@ -12,7 +13,7 @@ const units={g:'g',ml:'ml',piece:'個',package:'包装・皿'};
 const amountText=a=>fmt(a.value)+' '+units[a.unit],stamp=()=>new Date().toISOString(),todayLogs=()=>state.intakeLogs.filter(l=>l.dayKey===dayKey());
 const localTime=iso=>dayKey(iso)+'T'+new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Tokyo',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(iso));
 async function refresh(){state=await db.readState();settings={...DEFAULT_SETTINGS,...state.settings.find(s=>s.id==='preferences')};goals=structuredClone(state.settings.find(s=>s.id==='goals')?.value||DEFAULT_GOALS);}
-function render(){if(!state||!foodDB)return;route=analyzing?'capture':(location.hash.slice(1)||'home').split('/')[0];document.querySelectorAll('[data-nav]').forEach(el=>el.classList.toggle('active',el.dataset.nav===route));document.querySelector('#connection').textContent=navigator.onLine?'この端末に保存':'オフライン';const pages={home:homeView,capture:captureView,review:reviewView,history:historyView,settings:settingsView,nutrients:nutrientsView,recommend:recommendView,foods:foodsView,past:pastView};app.replaceChildren(...(pages[route]||homeView)().filter(Boolean));}
+function render(){if(!state||!foodDB)return;route=analyzing?'capture':(location.hash.slice(1)||'home').split('/')[0];document.querySelectorAll('[data-nav]').forEach(el=>el.classList.toggle('active',el.dataset.nav===route));document.querySelector('#connection').textContent=navigator.onLine?'この端末に保存':'オフライン';const pages={home:homeView,capture:captureView,review:reviewView,history:historyView,settings:settingsView,nutrients:nutrientsView,recommend:recommendView,foods:foodsView,past:pastView,manual:manualView};app.replaceChildren(...(pages[route]||homeView)().filter(Boolean));}
 const navigate=hash=>{if(location.hash==='#'+hash)render();else location.hash=hash;};
 function nutrientRow(d,total){
  const n=total[d.id],s=statusOf(d.id,n.value,goals),g=goalFor(d.id,goals);
@@ -38,7 +39,7 @@ function homeView(){const logs=todayLogs(),total=aggregate(logs),energy=total.en
  const pbar=h('div',{class:'bar'},h('span'));pbar.firstChild.style.width=Math.min(100,(protein||0)/goals.protein.target*100)+'%';const pcard=card(h('div',{class:'card-head'},h('h2',{},'たんぱく質'),pill(protein===null?'不明':protein>=goals.protein.target?'目標達成':'あと '+fmt(goals.protein.target-protein)+' g')),h('div',{class:'protein-value'},fmt(protein),h('small',{},' / '+fmt(goals.protein.target)+' g')),pbar,h('p',{class:'muted'},total.protein.partial?('判明した分だけを表示しています。'+(total.protein.estimated?'推定を含む':'')):(total.protein.estimated?'推定を含む':'毎日の目標を、少しずつ。')));
  const nutrients=DEFINITIONS.filter(d=>!['energy','protein','sodium','sugar'].includes(d.id)).sort((a,b)=>{const rank=d=>{const s=statusOf(d.id,total[d.id].value,goals);return ['high','near'].includes(s.kind)?-2:s.kind==='unknown'?3:s.ratio??3;};return rank(a)-rank(b);}).slice(0,4);
  const balance=card(h('div',{class:'card-head'},h('h2',{},'栄養バランス'),link('すべて見る →','#nutrients')),logs.length?nutrients.map(d=>nutrientRow(d,total)):empty('食事を記録すると、栄養バランスが表示されます。'));
- const action=h('section',{class:'card action-card'},h('h2',{},'今日のひとさじを記録'),h('p',{},'商品も、手づくりの料理も。',h('br'),'写真から栄養を読み取ります。'),link([h('span',{class:'camera-icon'}),'食事を撮影する'],'#capture','primary wide camera-action'),h('div',{class:'row'},link('過去の食事から追加','#past'),link('食品を選んで記録','#foods'),btn('外食を記録',()=>{capture=null;analysis=null;return newRestaurant();},'secondary')));
+ const action=h('section',{class:'card action-card'},h('h2',{},'今日のひとさじを記録'),h('p',{},'商品も、手づくりの料理も。',h('br'),'写真から栄養を読み取ります。'),link([h('span',{class:'camera-icon'}),'食事を撮影する'],'#capture','primary wide camera-action'),h('div',{class:'row'},link('緊急手入力','#manual','text-btn emergency-entry'),link('過去の食事から追加','#past'),link('食品を選んで記録','#foods'),btn('外食を記録',()=>{capture=null;analysis=null;return newRestaurant();},'secondary')));
  const recent=[...state.intakeLogs].sort((a,b)=>b.consumedAt.localeCompare(a.consumedAt)).filter((l,i,a)=>a.findIndex(x=>x.productId===l.productId)===i).slice(0,4);
  return [title('今日の栄養','DAILY NUTRITION',h('span',{class:'date'},new Intl.DateTimeFormat('ja-JP',{timeZone:'Asia/Tokyo',month:'long',day:'numeric',weekday:'short'}).format(new Date()))),backupReminder(),!hasKey()?note(h('div',{class:'row spread'},h('span',{},'写真解析には、APIキーの設定が必要です。'),link('初期設定へ →','#settings'))):null,state.pendingCaptures.length?note(h('div',{class:'row spread'},h('span',{},'未完了の入力 '+state.pendingCaptures.length+' 件'),link('続きから','#capture'))):null,h('div',{class:'grid'},h('div',{class:'stack'},hero,pcard),h('div',{class:'stack'},action,balance)),h('section',{class:'section'},btn('✧  何を食べればいい？',()=>navigate('recommend'),'secondary wide')),h('section',{class:'section'},h('div',{class:'card-head'},h('h2',{},'最近の商品'),link('すべて見る →','#past'),h('span',{class:'muted'},'前回と同じ量を、ワンタップ')),recent.length?h('div',{class:'recent-list'},recent.map(l=>foodRow(l,()=>repeatLog(l)))):card(empty('よく食べるものが、ここに並びます。'))),h('section',{class:'section'},h('div',{class:'card-head'},h('h2',{},'今日の記録'),h('span',{class:'muted'},logs.length+' 件')),logs.length?h('div',{class:'log-list'},[...logs].sort((a,b)=>b.consumedAt.localeCompare(a.consumedAt)).map(logView)):card(empty('まだ記録はありません。最初の食事を撮ってみましょう。'))),h('p',{class:'footer-note'},'記録はこの端末だけに保存されます。定期的にバックアップしましょう。')];}
 function logView(log){const time=new Intl.DateTimeFormat('ja-JP',{timeZone:'Asia/Tokyo',hour:'2-digit',minute:'2-digit'}).format(new Date(log.consumedAt));return h('div',{class:'food-row'},h('span',{class:'food-info'},h('strong',{},log.name),h('small',{},time+' · '+amountText(log.amount)+' · '+fmt(log.nutrientSnapshot.energy.value,0)+' kcal')),btn('詳細',()=>showLog(log),'text-btn'));}
@@ -77,6 +78,26 @@ async function repeatLog(previous){if(saving)return;saving=true;try{if(isDuplica
 function foodSearchControls(select){const input=h('input',{type:'search',placeholder:'例：納豆、ヨーグルト、こまつな','aria-label':'食品を検索'}),results=h('div',{class:'filter-list'});const update=()=>{const terms=input.value.trim().split(/[\s　]+/).filter(Boolean),list=foods.filter(f=>terms.length?terms.every(t=>f.name.includes(t)):f.recommendation).slice(0,45);results.replaceChildren(...list.map(f=>h('button',{class:'food-row',type:'button',onClick:safe(()=>select(f))},h('span',{class:'food-info'},h('strong',{},f.name),h('small',{},'100gあたり '+fmt(f.nutrients.energy,0)+' kcal')),h('span',{class:'plus'},'＋'))));if(!list.length)results.append(empty('一致する食品がありません。ひらがなや短い食品名で検索してください。'));};input.addEventListener('input',update);update();return h('div',{},label('食品名',input),results);}
 function chooseFood(callback){dialogBody.replaceChildren(h('h2',{},'食品成分表から選ぶ'),foodSearchControls(food=>{callback(food);dialog.close();}),btn('閉じる',()=>dialog.close(),'text-btn'));dialog.showModal();}
 function foodsView(){return [title('食品を選んで記録','FOOD COMPOSITION'),card(h('p',{class:'muted'},'食品成分表 '+fmt(foods.length,0)+' 品目。標準的な食品の推定値です。'),foodSearchControls(food=>{capture=null;analysis=foodAnalysis(food,food.servingGrams||100);amount=structuredClone(analysis.consumedAmountCandidate);consumedAt=stamp();navigate('review');})),h('p',{class:'footer-note'},'出典：'+foodDB.sourceName+' '+foodDB.sourceVersion)];}
+function manualView(){
+ const name=h('input',{required:true,maxlength:200,placeholder:'例：おにぎりとお茶','aria-label':'食事名'});
+ const fields=new Map();
+ const field=d=>{const control=number(null,{'aria-label':d.label+' '+d.unit});fields.set(d.id,control);return label(d.label+'（'+d.unit+'）',control);};
+ const primary=DEFINITIONS.filter(d=>['energy','protein'].includes(d.id));
+ const other=DEFINITIONS.filter(d=>!['energy','protein','sodium'].includes(d.id));
+ const submit=h('button',{type:'submit',class:'primary'},'今日に記録する');
+ const form=h('form',{onSubmit:safe(async e=>{
+  e.preventDefault();if(saving)return;
+  const entry=manualAnalysis(name.value,Object.fromEntries(Array.from(fields,([id,control])=>[id,inputValue(control)])));
+  validateAnalysis(entry);saving=true;submit.disabled=true;
+  try{
+   const now=stamp(),product={id:crypto.randomUUID(),name:entry.productName,manufacturer:'',createdAt:now};
+   const version={id:crypto.randomUUID(),productId:product.id,createdAt:now,analysis:entry,foodDatabaseVersion:foodDB.sourceVersion};
+   const log={id:crypto.randomUUID(),productId:product.id,productVersionId:version.id,name:entry.productName,consumedAt:now,dayKey:dayKey(now),amount:{value:1,unit:'package'},nutrientSnapshot:snapshot(entry,{value:1,unit:'package'})};
+   await db.saveIntake(product,version,log);await refresh();navigate('home');undoToast(log);
+  }finally{saving=false;submit.disabled=false;}
+ })},label('食事名',name),h('p',{class:'muted'},'食べた分の合計を入力してください。名前だけでも記録できます。空欄の栄養値は「不明」、入力した値は推定値として保存します。'),primary.map(field),h('details',{},h('summary',{},'ほかの栄養値も入力'),other.map(field)),h('div',{class:'section'},submit));
+ return [title('緊急手入力','QUICK NOTE'),link('← 今日へ','#home'),card(form)];
+}
 let pastQuery='',pastDate='',pastLimit=30;
 function pastView(){
  const results=h('div',{class:'stack'}),count=h('p',{class:'muted','aria-live':'polite'});
@@ -109,6 +130,7 @@ function settingsView(){const keyInput=h('input',{type:'password',autocomplete:'
 
 async function start(){try{await refresh();const response=await fetch('./data/food-composition.json');if(!response.ok)throw new Error('食品成分データを読み込めませんでした。');foodDB=await response.json();foods=foodDB.foods;render();if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>toast('オフライン準備ができませんでした。接続中にもう一度開いてください。'));storageStatus(true).then(s=>{persistence=s;if(route==='settings')render();});window.addEventListener('hashchange',()=>{render();window.scrollTo(0,0);});window.addEventListener('online',render);window.addEventListener('offline',render);document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh().then(render).catch(()=>{});});if(document.modelContext?.registerTool){try{await document.modelContext.registerTool({name:'read_today_nutrition',title:'今日の栄養を確認',description:'この端末の今日の栄養集計を読み取ります。',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:async input=>{if(!input||typeof input!=='object'||Array.isArray(input)||Object.keys(input).length)throw new Error('入力は空のオブジェクトにしてください。');await refresh();return {day:dayKey(),records:todayLogs().length,totals:aggregate(todayLogs())};}});}catch{/* Optional browser capability. */}}}catch(e){app.replaceChildren(title('起動できませんでした'),note(e.message,'error'),btn('再読み込み',()=>location.reload(),'primary'));}}
 start();
+
 
 
 
